@@ -1,3 +1,5 @@
+const https = require('https');
+
 exports.handler = async (event) => {
   if (event.httpMethod === 'OPTIONS') {
     return {
@@ -16,32 +18,58 @@ exports.handler = async (event) => {
   }
 
   try {
-    const { messages, model, max_tokens } = JSON.parse(event.body);
+    const body = JSON.parse(event.body);
+    const apiKey = process.env.ANTHROPIC_API_KEY;
 
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': process.env.ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
-      },
-      body: JSON.stringify({
-        model: model || 'claude-sonnet-4-20250514',
-        max_tokens: max_tokens || 2000,
-        messages: messages
-      })
-    });
-
-    if (!response.ok) {
-      const errText = await response.text();
+    if (!apiKey) {
       return {
-        statusCode: response.status,
+        statusCode: 500,
         headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ error: errText })
+        body: JSON.stringify({ error: 'API key not configured' })
       };
     }
 
-    const data = await response.json();
+    const requestBody = JSON.stringify({
+      model: body.model || 'claude-sonnet-4-20250514',
+      max_tokens: body.max_tokens || 2000,
+      messages: body.messages
+    });
+
+    const result = await new Promise((resolve, reject) => {
+      const options = {
+        hostname: 'api.anthropic.com',
+        path: '/v1/messages',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'Content-Length': Buffer.byteLength(requestBody)
+        },
+        timeout: 25000
+      };
+
+      const req = https.request(options, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          try {
+            resolve({ statusCode: res.statusCode, body: JSON.parse(data) });
+          } catch (e) {
+            reject(new Error('Failed to parse response: ' + data));
+          }
+        });
+      });
+
+      req.on('error', reject);
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('Request timed out'));
+      });
+
+      req.write(requestBody);
+      req.end();
+    });
 
     return {
       statusCode: 200,
@@ -49,8 +77,9 @@ exports.handler = async (event) => {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       },
-      body: JSON.stringify(data)
+      body: JSON.stringify(result.body)
     };
+
   } catch (error) {
     return {
       statusCode: 500,
