@@ -25,13 +25,13 @@ exports.handler = async (event) => {
       return {
         statusCode: 500,
         headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ error: 'API key not configured' })
+        body: JSON.stringify({ error: 'ANTHROPIC_API_KEY not set' })
       };
     }
 
     const requestBody = JSON.stringify({
-      model: body.model || 'claude-sonnet-4-5-20250929',
-      max_tokens: body.max_tokens || 2000,
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 2000,
       messages: body.messages
     });
 
@@ -53,18 +53,14 @@ exports.handler = async (event) => {
         let data = '';
         res.on('data', (chunk) => { data += chunk; });
         res.on('end', () => {
-          try {
-            resolve({ statusCode: res.statusCode, body: JSON.parse(data) });
-          } catch (e) {
-            reject(new Error('Failed to parse response: ' + data));
-          }
+          resolve({ statusCode: res.statusCode, body: data });
         });
       });
 
-      req.on('error', reject);
+      req.on('error', (e) => reject(e));
       req.on('timeout', () => {
         req.destroy();
-        reject(new Error('Request timed out'));
+        reject(new Error('Request timed out after 25s'));
       });
 
       req.write(requestBody);
@@ -77,7 +73,7 @@ exports.handler = async (event) => {
         'Content-Type': 'application/json',
         'Access-Control-Allow-Origin': '*'
       },
-      body: JSON.stringify(result.body)
+      body: result.body
     };
 
   } catch (error) {
